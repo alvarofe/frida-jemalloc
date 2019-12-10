@@ -1,6 +1,7 @@
 const symbols : ISymbols = {};
 
 export const dword_size = Process.pointerSize;
+export const int_size = 4;
 export const arch = Process.arch;
 
 interface ISymbols {

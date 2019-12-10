@@ -29,6 +29,10 @@ export class BaseConfigAndroid {
 
     return 0;
   }
+
+  public offsetStructMember(addr: NativePointer, structure: string, field: string) : NativePointer {
+    return addr.add(this.offsetof(structure, field));
+  }
 }
 
 const configs: BaseConfigAndroid[] = [];

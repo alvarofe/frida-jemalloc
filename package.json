@@ -2,8 +2,7 @@
   "author": "Alvaro Felipe Melchor",
   "name": "frida-jemalloc",
   "version": "0.0.1",
-  "description": "Android jemalloc parser module",
-  "private": true,
+  "description": "Android jemalloc parser module based on shadow",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "files": [

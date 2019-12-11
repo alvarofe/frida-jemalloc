@@ -41,8 +41,8 @@ export function getAndroidConfig() : BaseConfigAndroid {
       bits = "64";
     }
   } else {
-		return null;
-	}
+    return null;
+  }
 
   for (var i = 0; i < configs.length; i++) {
     if (configs[i].version === version && configs[i].bits === bits) {

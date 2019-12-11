@@ -1,9 +1,7 @@
 const symbols : ISymbols = {};
 
-export const dword_size = Process.pointerSize;
-export const page_size = Process.pageSize;
-export const int_size = 4;
-export const arch = Process.arch;
+export const dwordSize = Process.pointerSize;
+export const pageSize = Process.pageSize;
 
 interface ISymbols {
   [name: string] : ModuleSymbolDetails;
@@ -30,30 +28,30 @@ export function readPointers(addr: NativePointer, amount: number) : NativePointe
 
   for (var i = 0; i < amount; i++) {
     pointers.push(addr.readPointer());
-    addr = addr.add(dword_size);
+    addr = addr.add(dwordSize);
   }
 
   return pointers;
 }
 
 export function calculateNBins() {
-  var nbins = addressSymbols(["nbins"]);
-  if (nbins.equals(0)) {
-    const ntbins = addressSymbols(["ntbins"]);
-    const nsbins = addressSymbols(["nsbins"]);
-    const nqbins = addressSymbols(["nqbins"]);
+  var nBins = addressSymbols(["nbins"]);
+  if (nBins.equals(0)) {
+    const nTbins = addressSymbols(["ntbins"]);
+    const nSbins = addressSymbols(["nsbins"]);
+    const nQbins = addressSymbols(["nqbins"]);
 
-    if (ntbins.equals(0) || nsbins.equals(0) || nqbins.equals(0)) {
-      if (dword_size == 8) {
+    if (nTbins.equals(0) || nSbins.equals(0) || nQbins.equals(0)) {
+      if (dwordSize == 8) {
         return 36;
-      } else if (dword_size == 4) {
+      } else if (dwordSize == 4) {
         return 39;
       }
     }
 
-    return ntbins.readU64().add(nsbins.readU64()).add(nqbins.readU64());
+    return nTbins.readU64().add(nSbins.readU64()).add(nQbins.readU64());
   }
 
-  return nbins.readU64();
+  return nBins.readU64();
 }
 

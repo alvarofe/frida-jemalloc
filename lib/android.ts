@@ -11,33 +11,33 @@ interface IStructure {
 }
 
 export function getAndroidConfig() : BaseConfigAndroid {
-  let chunksize = utils.addressSymbols(["je_chunksize", "chunksize"]).readU64();
-  let map_misc_offset = utils.addressSymbols(["je_map_misc_offset"]).readU64();
+  let chunkSize = utils.addressSymbols(["je_chunksize", "chunksize"]).readU64();
+  let mapMiscOffset = utils.addressSymbols(["je_map_misc_offset"]).readU64();
   let version;
   let bits;
 
   // Add more configs
   configs.push(new Android864());
 
-  if (chunksize.equals(0x80000)) {
+  if (chunkSize.equals(0x80000)) {
     bits = "32";
-    if (map_misc_offset.equals(0x230)) {
+    if (mapMiscOffset.equals(0x230)) {
       version = "8";
-    } else if (map_misc_offset.equals(0x228)) {
+    } else if (mapMiscOffset.equals(0x228)) {
       version = "7";
     }
-  } else if (chunksize.equals(0x200000)) {
+  } else if (chunkSize.equals(0x200000)) {
     bits = "64";
-    if (map_misc_offset.equals(0x1010)) {
+    if (mapMiscOffset.equals(0x1010)) {
       version = "8";
-    } else if (map_misc_offset.equals(0x1008)) {
+    } else if (mapMiscOffset.equals(0x1008)) {
       version = "7";
     }
-  } else if (chunksize.equals(0x40000)) {
+  } else if (chunkSize.equals(0x40000)) {
     version = "6";
-    if (utils.dword_size === 4) {
+    if (utils.dwordSize === 4) {
       bits = "32";
-    } else if (utils.dword_size === 8) {
+    } else if (utils.dwordSize === 8) {
       bits = "64";
     }
   } else {
@@ -52,20 +52,20 @@ export function getAndroidConfig() : BaseConfigAndroid {
 }
 
 export class BaseConfigAndroid {
-  public version: string;
-  public bits: string;
-  public values : IOffset;
-  public sizes: IOffset;
-  public offsets : IStructure;
+  version: string;
+  bits: string;
+  values : IOffset;
+  sizes: IOffset;
+  offsets : IStructure;
 
-  public sizeof(structure: string) : number {
+  public sizeOf(structure: string) : number {
     if (structure in this.sizes) {
       return this.sizes[structure];
     }
     return 0;
   }
 
-  public offsetof(structure: string, field: string) : number {
+  public offsetOf(structure: string, field: string) : number {
     if (structure in this.offsets) {
       if (field in this.offsets[structure]) {
         return this.offsets[structure][field];
@@ -76,16 +76,16 @@ export class BaseConfigAndroid {
   }
 
   public offsetStructMember(addr: NativePointer, structure: string, field: string) : NativePointer {
-    return addr.add(this.offsetof(structure, field));
+    return addr.add(this.offsetOf(structure, field));
   }
 }
 
 class Android864 extends BaseConfigAndroid {
-  public version: string = "8";
-  public bits: string = "64";
-  public values : IOffset;
-  public sizes: IOffset;
-  public offsets : IStructure;
+  version: string = "8";
+  bits: string = "64";
+  values : IOffset;
+  sizes: IOffset;
+  offsets : IStructure;
 
   constructor() {
     super();

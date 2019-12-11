@@ -14,21 +14,31 @@ npm install frida-jemalloc
 import { Jemalloc } from "frida-jemalloc";
 
 const jemalloc = new Jemalloc();
-// After 20 times getting info of a pointer, parse again the whole thing
-jemalloc.set_threshold(20);
 
-const base = Module.findBaseAddress("module.so");
+// After 40 times getting info of pointers it will parse again the whole thing
+jemalloc.setThreshold(40);
+
+const base = Module.findBaseAddress("...");
+
+jemalloc.parseAll();
 
 console.log("[*] Base of module " + base);
-
-jemalloc.parse_all();
 
 Interceptor.attach(base.add(...), {
   onEnter(args) {
     var ctx = this.context as Arm64CpuContext;
-    jemalloc.get_info(ctx.x0).dump();
+    let info = jemalloc.getInfo(ctx.x0);
+
+    if (info.region === null) {
+      // Force the parsing because it should have been found
+      jemalloc.parseAll();
+      info = jemalloc.getInfo(ctx.x0);
+    }
+
+    info.dump();
   }
 });
+
 
 ```
 
@@ -58,5 +68,5 @@ Interceptor.attach(base.add(...), {
 TODO
 ====
 
-There are things still missing which will be added in the future. By now it only will work on Android8 64 bits as is the main device of testing I have, but more configurations can be added and hence tested. In addition, open to PR or whatever improvements.
+There are things still missing which will be added in the future. By now it only will work on Android8 64 bits as is the main device of testing I have, but more configurations can be added and hence tested. Moreover, I am open to PR, comments or other improvements over the code.
 

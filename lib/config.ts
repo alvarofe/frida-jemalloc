@@ -44,7 +44,6 @@ export class BaseConfigAndroid {
 export function getConfig(version: string, bits: string) : BaseConfigAndroid {
   for (var i = 0; i < configs.length; i++) {
     if (configs[i].version === version && configs[i].bits === bits) {
-      console.log("[*] Found Android configuration");
       return configs[i];
     }
   }

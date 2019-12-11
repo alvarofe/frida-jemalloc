@@ -1,18 +1,22 @@
 {
-  "name": "jemalloc_frida",
+  "author": "Alvaro Felipe Melchor",
+  "name": "frida-jemalloc",
   "version": "0.0.1",
-  "description": "JEMALLOC parser for frida",
+  "description": "Android jemalloc parser module",
   "private": true,
-  "main": "agent/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "/dist/"
+  ],
   "scripts": {
     "prepare": "npm run build",
-    "build": "frida-compile agent/index.ts -o _agent.js",
-    "watch": "frida-compile agent/index.ts -o _agent.js -w",
-    "execute" : "python load_frida_script.py 23cc4c003a0c7ece _agent.js"
+    "build": "tsc",
+    "watch": "tsc -w"
   },
   "devDependencies": {
     "@types/frida-gum": "^14.1.0",
     "@types/node": "^12.7.2",
-    "frida-compile": "^9.0.8"
+    "typescript": "^3.5.3"
   }
 }

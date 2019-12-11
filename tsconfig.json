@@ -2,12 +2,16 @@
   "compilerOptions": {
     "target": "esnext",
     "lib": ["esnext"],
-    "allowJs": true,
-    "noEmit": true,
     "strict": true,
+    "module": "commonjs",
     "esModuleInterop": true,
+    "declaration": true,
     "noImplicitAny": false,
-    "strictNullChecks": false
-  }
-
+    "strictNullChecks": false,
+    "outDir": "./dist"
+  },
+  "include": [
+    "lib/**/*",
+    "index.ts"
+  ]
 }

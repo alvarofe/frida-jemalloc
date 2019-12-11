@@ -30,7 +30,9 @@ export function detectAndroidVersion() : config.BaseConfigAndroid {
     } else if (utils.dword_size === 8) {
       bits = "64";
     }
-  }
+  } else {
+		return null;
+	}
 
   return config.getConfig(version, bits);
 }

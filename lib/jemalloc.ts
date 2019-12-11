@@ -1,5 +1,6 @@
 import * as utils from  "./utils";
 import * as cfg from "./config";
+import { detectAndroidVersion } from "./android";
 
 interface IRuns {
   [addr: string] : Run;
@@ -22,12 +23,14 @@ class BinInfo {
 class Chunk {
   public addr: NativePointer;
   public arena_addr: NativePointer;
-  public runs = [];
+  public runs : Run[] = [];
+  public size: number;
 
-  constructor(addr: NativePointer, arena_addr: NativePointer, runs: []) {
+  constructor(addr: NativePointer, arena_addr: NativePointer, runs: Run[], size: number) {
     this.addr = addr;
     this.arena_addr = arena_addr;
     this.runs = runs;
+    this.size = size;
   }
 }
 
@@ -65,6 +68,33 @@ class Run {
   }
 }
 
+export class JemallocInfo {
+  public region: Region;
+  public run: Run;
+  public chunk: Chunk;
+  public addr: NativePointer;
+
+  constructor(region: Region, run: Run, chunk: Chunk, addr: NativePointer) {
+    this.region = region;
+    this.run = run;
+    this.chunk = chunk;
+    this.addr = addr;
+  }
+
+  dump() {
+    console.log("[*] Jemalloc info of " + this.addr);
+    console.log("[+] Chunk");
+    console.log(" Address : " + this.chunk.addr);
+    console.log(" Size    : 0x" + this.chunk.size.toString(16));
+    console.log("[+] Run");
+    console.log(" Address : " + this.run.addr);
+    console.log(" Size    : 0x" + this.run.size.toString(16));
+    console.log("[+] Region");
+    console.log(" Address : " + this.region.addr);
+    console.log(" Size    : 0x" + this.region.size.toString(16));
+  }
+}
+
 export class Jemalloc {
   nbins: number;
   android: cfg.BaseConfigAndroid;
@@ -75,8 +105,14 @@ export class Jemalloc {
   narenas: number;
   chunk_size: number;
 
-  constructor(config : cfg.BaseConfigAndroid) {
-    this.android = config;
+  constructor() {
+    utils.collectSymbols();
+    this.android = detectAndroidVersion();
+    if (this.android === null) {
+      console.log("[-] frida-jemalloc could not detect android version");
+      return;
+    }
+
     this.nbins = <number> utils.calculateNBins();
 
     const arenas_arr_addr = utils.addressSymbols(['arenas', 'je_arenas']).readPointer();
@@ -86,17 +122,57 @@ export class Jemalloc {
     this.chunk_size = utils.addressSymbols(['chunksize', 'je_chunksize']).readU32();
   }
 
+  get_info(addr: NativePointer): JemallocInfo {
+    // Find the chunk that this addr belong
+    var chunk = null;
+    var run = null;
+    var region = null;
+
+    this.parse_all();
+
+    for (let i = 0; i < this.chunks.length; i++) {
+      const aux = this.chunks[i];
+      if (addr.compare(aux.addr) >= 0 &&
+          addr.compare(aux.addr.add(this.chunk_size)) < 0) {
+        chunk = aux;
+        break;
+      }
+    }
+
+    for (let i = 0; i < chunk.runs.length; i++) {
+      const aux = chunk.runs[i];
+      if (addr.compare(aux.addr) >= 0 &&
+          addr.compare(aux.addr.add(aux.size)) < 0) {
+        run = aux;
+        break;
+      }
+    }
+
+    for (let i = 0; i < run.regions.length; i++) {
+      const aux = run.regions[i];
+      if (addr.compare(aux.addr) >= 0 &&
+          addr.compare(aux.addr.add(aux.size)) < 0) {
+        region = aux;
+        break;
+      }
+    }
+
+    return new JemallocInfo(region, run, chunk, addr);
+  }
+
   parse_all() {
-    this.parse_bin_info();
-    this.parse_chunks();
-    this.parse_all_runs();
+    if (this.android !== null) {
+      this.parse_bin_info();
+      this.parse_chunks();
+      this.parse_all_runs();
+    }
   }
 
   parse_bin_info() {
-    console.log("[*] Parsing arena_bin_info array");
     let info_addr = utils.addressSymbols(["je_arena_bin_info"]);
     const info_size = this.android.sizeof("arena_bin_info_t");
 
+    this.bin_info = [];
 
     for (var i = 0; i < this.nbins; i++) {
       const reg_size = this.android.offsetStructMember(info_addr, "arena_bin_info_t", "reg_size").readU64();
@@ -111,7 +187,6 @@ export class Jemalloc {
   }
 
   parse_chunks() {
-    console.log("[*] Parsing chunks");
     const chunks_rtree_addr = utils.addressSymbols(["je_chunks_rtree"]);
     const max_height = this.android.offsetStructMember(chunks_rtree_addr, "rtree_t", "height").readU32();
     const levels_addr = chunks_rtree_addr.add(this.android.offsetof("rtree_t", "levels"));
@@ -132,6 +207,8 @@ export class Jemalloc {
     }
 
     stack.push(root);
+
+    this.chunks = [];
 
     while (stack.length > 0) {
       let element = stack.pop();
@@ -158,9 +235,9 @@ export class Jemalloc {
           }
 
           if (this.arenas_addr.some(x => x.equals(arena_addr))) {
-            this.chunks.push(new Chunk(addr, arena_addr, []));
+            this.chunks.push(new Chunk(addr, arena_addr, [], this.chunk_size));
           } else {
-            this.chunks.push(new Chunk(addr, ptr(0), []));
+            this.chunks.push(new Chunk(addr, ptr(0), [], this.chunk_size));
           }
         } else {
           stack.push([addr, height + 1]);
@@ -170,8 +247,6 @@ export class Jemalloc {
   }
 
   parse_all_runs() {
-    console.log("[*] Parsing all runs");
-
     const map_bias = utils.addressSymbols(["je_map_bias"]).readU32();
     const chunk_npages = this.chunk_size >> 12;
     const chunk_map_dwords = Math.floor(this.android.sizeof("arena_chunk_map_bits_t") / utils.dword_size);
@@ -182,6 +257,8 @@ export class Jemalloc {
     // the 12 least significant bits of each bitmap entry hold
     // various flags for the corresponding run
     const flags_mask = (1 << 12) - 1;
+
+    this.runs = {};
 
     for (var i = 0; i < this.chunks.length; i++) {
       const chunk = this.chunks[i];
@@ -259,10 +336,6 @@ export class Jemalloc {
   }
 
   parse_run(hdr_addr: NativePointer, addr: NativePointer, size: number, binid: number) : Run {
-    if (hdr_addr.equals(0) || size === 0) {
-      return;
-    }
-
     if (binid === -1) {
       // Large run insert it directly
       return new Run (hdr_addr, addr, size, binid, 0, [], []);

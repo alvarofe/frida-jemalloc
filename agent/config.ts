@@ -1,9 +1,15 @@
-export interface IOffset {
+interface IOffset {
   [field : string] : number
 }
 
-export interface IStructure {
+interface IStructure {
   [structure: string] : IOffset;
+}
+
+const configs: BaseConfigAndroid[] = [];
+
+export function initConfigAndroid() {
+  configs.push(new Android864());
 }
 
 export class BaseConfigAndroid {
@@ -33,12 +39,6 @@ export class BaseConfigAndroid {
   public offsetStructMember(addr: NativePointer, structure: string, field: string) : NativePointer {
     return addr.add(this.offsetof(structure, field));
   }
-}
-
-const configs: BaseConfigAndroid[] = [];
-
-export function initConfigAndroid() {
-  configs.push(new Android864());
 }
 
 export function getConfig(version: string, bits: string) : BaseConfigAndroid {

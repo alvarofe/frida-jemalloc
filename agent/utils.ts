@@ -1,6 +1,7 @@
 const symbols : ISymbols = {};
 
 export const dword_size = Process.pointerSize;
+export const page_size = Process.pageSize;
 export const int_size = 4;
 export const arch = Process.arch;
 
@@ -22,6 +23,17 @@ export function addressSymbols(names: string[]) : NativePointer {
   }
 
   return ptr(0);
+}
+
+export function readPointers(addr: NativePointer, amount: number) : NativePointer[] {
+  const pointers: NativePointer[] = [];
+
+  for (var i = 0; i < amount; i++) {
+    pointers.push(addr.readPointer());
+    addr = addr.add(dword_size);
+  }
+
+  return pointers;
 }
 
 export function calculateNBins() {

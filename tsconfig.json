@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
-    "target": "esnext",
-    "lib": ["esnext"],
+    "target": "es2017",
+    "lib": ["es2017"],
     "strict": true,
     "module": "commonjs",
     "esModuleInterop": true,

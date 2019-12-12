@@ -1,5 +1,6 @@
 import * as utils from  "./utils";
 import * as android from "./android";
+import { BaseConfig } from "./config";
 
 interface IRuns {
   [addr: string] : Run;
@@ -13,17 +14,17 @@ export class JemallocInfo {
 
   dump() {
     console.log("[*] Jemalloc info of " + this.addr);
-    if (this.chunk !== null) {
+    if (this?.chunk) {
       console.log(" Chunk:");
       console.log("  Address : " + this.chunk.addr);
       console.log("  Size    : 0x" + this.chunk.size.toString(16));
     }
-    if (this.run !== null) {
+    if (this?.run) {
       console.log(" Run:");
       console.log("  Address : " + this.run.addr);
       console.log("  Size    : 0x" + this.run.size.toString(16));
     }
-    if (this.region !== null) {
+    if (this?.region) {
       console.log(" Region:");
       console.log("  Address : " + this.region.addr);
       console.log("  Size    : 0x" + this.region.size.toString(16));
@@ -36,22 +37,22 @@ export class Jemalloc {
   binInfo: BinInfo[] = [];
   chunks: Chunk[] = [];
   runs: IRuns = {};
-  private config: android.BaseConfigAndroid;
+  private config: BaseConfig;
   private arenasAddr: NativePointer[] = [];
   private nArenas: number;
   private chunkSize: number;
-  private threshold: number = 0;
+  private threshold: number = 1000;
   private counter: number = 0;
 
-  constructor() {
+  constructor(config: BaseConfig) {
     utils.collectSymbols();
 
-    this.config = android.getAndroidConfig();
-    if (this.config === null) {
-      console.log("[-] frida-jemalloc could not detect android config");
+    if (config === null || config === undefined) {
+      console.log("[-] frida-jemalloc could not detect any config");
       return;
     }
 
+    this.config = config;
     this.nBins = <number> utils.calculateNBins();
 
     const arenasArrAddr = utils.addressSymbols(['arenas', 'je_arenas']).readPointer();
@@ -114,7 +115,7 @@ export class Jemalloc {
   parseAll() {
     this.counter = 0;
 
-    if (this.config !== null) {
+    if (this?.config) {
       this.parseBinInfo();
       this.parseChunks();
       this.parseAllRuns();

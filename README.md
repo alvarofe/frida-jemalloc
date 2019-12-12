@@ -12,11 +12,12 @@ npm install frida-jemalloc
 
 ```ts
 import { Jemalloc } from "frida-jemalloc";
+import { getAndroidConfig } from "frida-jemalloc";
 
-const jemalloc = new Jemalloc();
+const jemalloc = new Jemalloc(getAndroidConfig());
 
-// After 40 times getting info of pointers it will parse again the whole thing
-jemalloc.setThreshold(40);
+// After 200 times getting info of pointers it will parse again the whole thing
+jemalloc.setThreshold(200);
 
 const base = Module.findBaseAddress("...");
 

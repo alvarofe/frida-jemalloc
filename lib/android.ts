@@ -1,4 +1,5 @@
 import * as utils from "./utils";
+import { BaseConfig } from "./config";
 
 const configs: BaseConfigAndroid[] = [];
 
@@ -10,7 +11,7 @@ interface IStructure {
   [structure: string] : IOffset;
 }
 
-export function getAndroidConfig() : BaseConfigAndroid {
+export function getAndroidConfig() : BaseConfig {
   let chunkSize = utils.addressSymbols(["je_chunksize", "chunksize"]).readU64();
   let mapMiscOffset = utils.addressSymbols(["je_map_misc_offset"]).readU64();
   let version;
@@ -51,7 +52,7 @@ export function getAndroidConfig() : BaseConfigAndroid {
   }
 }
 
-export class BaseConfigAndroid {
+class BaseConfigAndroid implements BaseConfig {
   version: string;
   bits: string;
   values : IOffset;

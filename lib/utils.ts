@@ -1,4 +1,5 @@
 const symbols : ISymbols = {};
+let symbolsInit = false;
 
 export const dwordSize = Process.pointerSize;
 export const pageSize = Process.pageSize;
@@ -11,9 +12,15 @@ export function collectSymbols() {
   Process.getModuleByName("libc.so").enumerateSymbols().forEach(function (symbol) {
     symbols[symbol.name] = symbol;
   });
+
+  symbolsInit = true;
 }
 
 export function addressSymbols(names: string[]) : NativePointer {
+  if (!symbolsInit) {
+    collectSymbols();
+  }
+
   for (var i = 0; i < names.length; i++) {
     if (names[i] in symbols) {
       return symbols[names[i]].address;

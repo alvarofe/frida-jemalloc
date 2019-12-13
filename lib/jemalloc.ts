@@ -35,8 +35,9 @@ export class JemallocInfo {
 export class Jemalloc {
   nBins: number;
   binInfo: BinInfo[] = [];
-  binInfo: TBinInfo[] = [];
+  tbinInfo: TBinInfo[] = [];
   chunks: Chunk[] = [];
+  arenas: Arena[] = [];
   runs: IRuns = {};
   private config: BaseConfig;
   private arenasAddr: NativePointer[] = [];
@@ -70,8 +71,8 @@ export class Jemalloc {
     const infoSize = this.config.sizeOf("arena_bin_info_t");
 
     for (var i = 0; i < this.nBins; i++) {
-      const regSize = this.config.offsetStructMember(infoAddr, "arena_bin_info_t", "reg_size").readU64();
-      const runSize = this.config.offsetStructMember(infoAddr, "arena_bin_info_t", "run_size").readU64();
+      const regSize = <number><unknown>this.config.offsetStructMember(infoAddr, "arena_bin_info_t", "reg_size").readU64();
+      const runSize = <number><unknown>this.config.offsetStructMember(infoAddr, "arena_bin_info_t", "run_size").readU64();
       const regOff = this.config.offsetStructMember(infoAddr, "arena_bin_info_t", "reg0_offset").readU32();
       const nRegs = this.config.offsetStructMember(infoAddr, "arena_bin_info_t", "nregs").readU32();
 
@@ -90,19 +91,6 @@ export class Jemalloc {
       tcacheBinInfo = tcacheBinInfo.add(4);
 
       this.tbinInfo.push(new TBinInfo(ncached));
-    }
-  }
-
-
-  setThreshold(refreshThreshold: number) {
-    this.threshold = refreshThreshold;
-  }
-
-  incCounter() {
-    this.counter++;
-
-    if (this.counter > this.threshold) {
-      this.parseAll();
     }
   }
 
@@ -144,12 +132,21 @@ export class Jemalloc {
     return new JemallocInfo(region, run, chunk, addr);
   }
 
-  parseAll() {
+  parse() {
     this.counter = 0;
 
     if (this?.config) {
       this.parseChunks();
       this.parseAllRuns();
+    }
+  }
+
+  parseAll() {
+    this.counter = 0;
+
+    if (this?.config) {
+      this.parse();
+      this.parseArenas();
     }
   }
 
@@ -302,7 +299,52 @@ export class Jemalloc {
     }
   }
 
-  parseRun(hdrAddr: NativePointer, addr: NativePointer, size: number, binId: number) : Run {
+  parseArenas() {
+    const binSize = this.config.sizeOf("arena_bin_t");
+
+    for (var i = 0; i < this.nArenas; i++) {
+      const curArenaBinAddr = this.arenasAddr[i].add(this.config.offsetOf("arena_t", "bins"));
+
+      if (curArenaBinAddr.equals(0)) {
+        continue;
+      }
+
+      const arena = new Arena(curArenaBinAddr, i, [], [], []);
+
+      for (var j = 0; j < this.nBins; j++) {
+        const binAddr = curArenaBinAddr.add(j * binSize);
+        const runCur = this.config.offsetStructMember(binAddr, "arena_bin_t", "runcur").readPointer();
+        let run;
+
+        if (runCur.equals(0)) {
+          run = null;
+        } else {
+          run = this.runs[runCur.toString()];
+        }
+
+        arena.bins.push(new ArenaBin(binAddr, j, run));
+      }
+
+      this.arenas.push(arena);
+    }
+  }
+
+  parseTcaches() {
+    const nhbins = utils.addressSymbols(["je_nhbins", "nhbins"]).readU32();
+    let maxCached = 0;
+
+    for (var i = 0; i < this.tbinInfo.length; i++) {
+      maxCached = maxCached + this.tbinInfo[i].ncachedMax;
+    }
+
+    let tcacheSize = this.config.offsetOf("tcache_t", "tbins") +
+      (this.config.sizeOf("tcache_bin_t") * nhbins) +
+      (maxCached * utils.dwordSize);
+
+    tcacheSize = this.sizeToBinSize(tcacheSize);
+  }
+
+  private parseRun(hdrAddr: NativePointer, addr: NativePointer, size: number, binId: number) : Run {
     if (binId === -1) {
       // Large run insert it directly
       return new Run (hdrAddr, addr, size, binId, 0, [], []);
@@ -347,13 +389,43 @@ export class Jemalloc {
 
     return new Run(hdrAddr, addr, runSize, binId, freeRegions, regsMask, regions);
   }
+
+  setThreshold(refreshThreshold: number) {
+    this.threshold = refreshThreshold;
+  }
+
+  private sizeToBinSize(size: number) {
+    const maxSmallSize = this.binInfo[this.nBins - 1].regSize;
+
+    if (size > maxSmallSize) {
+      return 0;
+    }
+
+    for (var i = 1; i < this.nBins; i++) {
+      if (size >= this.binInfo[i - 1].regSize&&
+        size < this.binInfo[i].regSize) {
+          return this.binInfo[i].regSize;
+      }
+    }
+
+    return 0;
+  }
+
+  private incCounter() {
+    this.counter++;
+
+    if (this.counter > this.threshold) {
+      this.parse();
+    }
+  }
+
 }
 
 class BinInfo {
-  constructor(public regSize: UInt64,
-              public runSize: UInt64,
-              public regOff: number,
-              public nRegs: number) {}
+  constructor(public regSize: number,
+    public runSize: number,
+    public regOff: number,
+    public nRegs: number) {}
 }
 
 class TBinInfo {
@@ -362,24 +434,38 @@ class TBinInfo {
 
 class Chunk {
   constructor(public addr: NativePointer,
-              public arenaAddr: NativePointer,
-              public runs: Run[],
-              public size: number) {}
+    public arenaAddr: NativePointer,
+    public runs: Run[],
+    public size: number) {}
 }
 
 class Region {
   constructor(public index: number,
-              public addr: NativePointer,
-              public size: number,
-              public isFree: boolean) {}
+    public addr: NativePointer,
+    public size: number,
+    public isFree: boolean) {}
 }
 
 class Run {
   constructor(public hdrAddr: NativePointer,
-              public addr: NativePointer,
-              public size: number,
-              public binId: number,
-              public nFree: number,
-              public bitMap: number[],
-              public regions: Region[]) {}
+    public addr: NativePointer,
+    public size: number,
+    public binId: number,
+    public nFree: number,
+    public bitMap: number[],
+    public regions: Region[]) {}
+}
+
+class ArenaBin {
+  constructor(public addr: NativePointer,
+    public index: number,
+    public runCur?: Run) {}
+}
+
+class Arena {
+  constructor(public addr: NativePointer,
+    public index: number,
+    public bins: ArenaBin[],
+    public chunks: Chunk[],
+    public tids: number[]) {}
 }

@@ -53,13 +53,16 @@ export class Jemalloc {
     }
 
     this.config = config;
-    this.nBins = <number> utils.calculateNBins();
+    this.nBins = <number> utils.calCulateNBins();
 
     const arenasArrAddr = utils.addressSymbols(['arenas', 'je_arenas']).readPointer();
     this.nArenas = utils.addressSymbols(['narenas', 'narenas_total','je_narenas_total']).readU32();
 
     this.arenasAddr = utils.readPointers(arenasArrAddr, this.nArenas);
     this.chunkSize = utils.addressSymbols(['chunksize', 'je_chunksize']).readU32();
+
+    // Parses this only once as the structure is read only
+    this.parseBinInfo();
   }
 
   setThreshold(refreshThreshold: number) {
@@ -116,7 +119,6 @@ export class Jemalloc {
     this.counter = 0;
 
     if (this?.config) {
-      this.parseBinInfo();
       this.parseChunks();
       this.parseAllRuns();
     }

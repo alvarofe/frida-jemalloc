@@ -35,6 +35,7 @@ export class JemallocInfo {
 export class Jemalloc {
   nBins: number;
   binInfo: BinInfo[] = [];
+  binInfo: TBinInfo[] = [];
   chunks: Chunk[] = [];
   runs: IRuns = {};
   private config: BaseConfig;
@@ -45,15 +46,13 @@ export class Jemalloc {
   private counter: number = 0;
 
   constructor(config: BaseConfig) {
-    utils.collectSymbols();
-
     if (config === null || config === undefined) {
       console.log("[-] frida-jemalloc could not detect any config");
       return;
     }
 
     this.config = config;
-    this.nBins = <number> utils.calCulateNBins();
+    this.nBins = <number> utils.calculateNBins();
 
     const arenasArrAddr = utils.addressSymbols(['arenas', 'je_arenas']).readPointer();
     this.nArenas = utils.addressSymbols(['narenas', 'narenas_total','je_narenas_total']).readU32();
@@ -63,7 +62,37 @@ export class Jemalloc {
 
     // Parses this only once as the structure is read only
     this.parseBinInfo();
+    this.parseTbinInfo();
   }
+
+  parseBinInfo() {
+    let infoAddr = utils.addressSymbols(["je_arena_bin_info"]);
+    const infoSize = this.config.sizeOf("arena_bin_info_t");
+
+    for (var i = 0; i < this.nBins; i++) {
+      const regSize = this.config.offsetStructMember(infoAddr, "arena_bin_info_t", "reg_size").readU64();
+      const runSize = this.config.offsetStructMember(infoAddr, "arena_bin_info_t", "run_size").readU64();
+      const regOff = this.config.offsetStructMember(infoAddr, "arena_bin_info_t", "reg0_offset").readU32();
+      const nRegs = this.config.offsetStructMember(infoAddr, "arena_bin_info_t", "nregs").readU32();
+
+      this.binInfo.push(new BinInfo(regSize, runSize, regOff, nRegs));
+
+      infoAddr = infoAddr.add(infoSize);
+    }
+  }
+
+  parseTbinInfo() {
+    const nhbins = utils.addressSymbols(["je_nhbins", "nhbins"]).readU32();
+    let tcacheBinInfo = utils.addressSymbols(["je_tcache_bin_info"]).readPointer();
+
+    for (var i = 0; i < nhbins; i++) {
+      const ncached = tcacheBinInfo.readU32();
+      tcacheBinInfo = tcacheBinInfo.add(4);
+
+      this.tbinInfo.push(new TBinInfo(ncached));
+    }
+  }
+
 
   setThreshold(refreshThreshold: number) {
     this.threshold = refreshThreshold;
@@ -121,24 +150,6 @@ export class Jemalloc {
     if (this?.config) {
       this.parseChunks();
       this.parseAllRuns();
-    }
-  }
-
-  parseBinInfo() {
-    let infoAddr = utils.addressSymbols(["je_arena_bin_info"]);
-    const infoSize = this.config.sizeOf("arena_bin_info_t");
-
-    this.binInfo = [];
-
-    for (var i = 0; i < this.nBins; i++) {
-      const regSize = this.config.offsetStructMember(infoAddr, "arena_bin_info_t", "reg_size").readU64();
-      const runSize = this.config.offsetStructMember(infoAddr, "arena_bin_info_t", "run_size").readU64();
-      const regOff = this.config.offsetStructMember(infoAddr, "arena_bin_info_t", "reg0_offset").readU32();
-      const nRegs = this.config.offsetStructMember(infoAddr, "arena_bin_info_t", "nregs").readU32();
-
-      this.binInfo.push(new BinInfo(regSize, runSize, regOff, nRegs));
-
-      infoAddr = infoAddr.add(infoSize);
     }
   }
 
@@ -343,6 +354,10 @@ class BinInfo {
               public runSize: UInt64,
               public regOff: number,
               public nRegs: number) {}
+}
+
+class TBinInfo {
+  constructor(public ncachedMax: number) {}
 }
 
 class Chunk {

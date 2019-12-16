@@ -2,8 +2,14 @@ import * as utils from  "./utils";
 import * as android from "./android";
 import { BaseConfig } from "./config";
 
+const THRESHOLD = 1000;
+
 interface IRuns {
   [addr: string] : Run;
+}
+
+interface ITcaches {
+  [tid: string] : Tcache;
 }
 
 export class JemallocInfo {
@@ -39,11 +45,12 @@ export class Jemalloc {
   chunks: Chunk[] = [];
   arenas: Arena[] = [];
   runs: IRuns = {};
+  tcaches: ITcaches = {};
   private config: BaseConfig;
   private arenasAddr: NativePointer[] = [];
   private nArenas: number;
   private chunkSize: number;
-  private threshold: number = 1000;
+  private threshold: number = THRESHOLD;
   private counter: number = 0;
 
   constructor(config: BaseConfig) {
@@ -61,9 +68,26 @@ export class Jemalloc {
     this.arenasAddr = utils.readPointers(arenasArrAddr, this.nArenas);
     this.chunkSize = utils.addressSymbols(['chunksize', 'je_chunksize']).readU32();
 
-    // Parses this only once as the structure is read only
+    // Parses this only once as these structures are read only
     this.parseBinInfo();
     this.parseTbinInfo();
+  }
+
+  parse() {
+    this.counter = 0;
+
+    if (this?.config) {
+      this.parseChunks();
+      this.parseAllRuns();
+    }
+  }
+
+  parseAll() {
+    if (this?.config) {
+      this.parse();
+      this.parseArenas();
+      this.parseTcaches();
+    }
   }
 
   parseBinInfo() {
@@ -91,62 +115,6 @@ export class Jemalloc {
       tcacheBinInfo = tcacheBinInfo.add(4);
 
       this.tbinInfo.push(new TBinInfo(ncached));
-    }
-  }
-
-  getInfo(addr: NativePointer): JemallocInfo {
-    // Find the chunk that this addr belong
-    var chunk = null;
-    var run = null;
-    var region = null;
-
-    this.incCounter();
-
-    for (let i = 0; i < this.chunks.length; i++) {
-      const aux = this.chunks[i];
-      if (addr.compare(aux.addr) >= 0 &&
-          addr.compare(aux.addr.add(this.chunkSize)) < 0) {
-        chunk = aux;
-        break;
-      }
-    }
-
-    for (let i = 0; i < chunk.runs.length; i++) {
-      const aux = chunk.runs[i];
-      if (addr.compare(aux.addr) >= 0 &&
-          addr.compare(aux.addr.add(aux.size)) < 0) {
-        run = aux;
-        break;
-      }
-    }
-
-    for (let i = 0; i < run.regions.length; i++) {
-      const aux = run.regions[i];
-      if (addr.compare(aux.addr) >= 0 &&
-          addr.compare(aux.addr.add(aux.size)) < 0) {
-        region = aux;
-        break;
-      }
-    }
-
-    return new JemallocInfo(region, run, chunk, addr);
-  }
-
-  parse() {
-    this.counter = 0;
-
-    if (this?.config) {
-      this.parseChunks();
-      this.parseAllRuns();
-    }
-  }
-
-  parseAll() {
-    this.counter = 0;
-
-    if (this?.config) {
-      this.parse();
-      this.parseArenas();
     }
   }
 
@@ -302,6 +270,8 @@ export class Jemalloc {
   parseArenas() {
     const binSize = this.config.sizeOf("arena_bin_t");
 
+    this.arenas = [];
+
     for (var i = 0; i < this.nArenas; i++) {
       const curArenaBinAddr = this.arenasAddr[i].add(this.config.offsetOf("arena_t", "bins"));
 
@@ -309,7 +279,7 @@ export class Jemalloc {
         continue;
       }
 
-      const arena = new Arena(curArenaBinAddr, i, [], [], []);
+      const arena = new Arena(this.arenasAddr[i], curArenaBinAddr, i, [], [], []);
 
       for (var j = 0; j < this.nBins; j++) {
         const binAddr = curArenaBinAddr.add(j * binSize);
@@ -333,6 +303,8 @@ export class Jemalloc {
     const nhbins = utils.addressSymbols(["je_nhbins", "nhbins"]).readU32();
     let maxCached = 0;
 
+    this.tcaches = {};
+
     for (var i = 0; i < this.tbinInfo.length; i++) {
       maxCached = maxCached + this.tbinInfo[i].ncachedMax;
     }
@@ -342,6 +314,176 @@ export class Jemalloc {
       (maxCached * utils.dwordSize);
 
     tcacheSize = this.sizeToBinSize(tcacheSize);
+
+    const dataOff = this.config.offsetOf("pthread_key_data_t", "data");
+    const pthreadInternalSize = this.config.sizeOf("pthread_internal_t");
+    const keyDataOff = this.config.offsetOf("pthread_internal_t", "key_data");
+    const pthreadKeyDataSize = this.config.sizeOf("pthread_key_data_t");
+    const BIONIC_PTHREAD_KEY_COUNT = 141;
+
+    // g_thread_list points to the first pthread_internal_t struct
+    let pthreadInternal = utils.addressSymbols(["_ZL13g_thread_list"]).readPointer();
+    while (!pthreadInternal?.equals(0)) {
+      let tcacheArena;
+      let tsdDwords;
+      const tid = this.config.offsetStructMember(pthreadInternal, "pthread_internal_t", "tid").readU32();
+      let keyData = pthreadInternal.add(keyDataOff);
+
+      // Point to the next pthreadInternal
+      pthreadInternal = this.config.offsetStructMember(pthreadInternal, "pthread_internal_t", "next").readPointer();
+
+      // Iterate through key data to find TSD for jemalloc
+      for (var i = 0; i < BIONIC_PTHREAD_KEY_COUNT; i++) {
+        const data = keyData.add(dataOff).readPointer();
+        // Advance pointer to the next stage
+        keyData = keyData.add(pthreadKeyDataSize);
+
+        if (data.equals(0)) {
+          continue;
+        }
+
+        const dataInfo = this.getInfo(data);
+
+        if (dataInfo?.region) {
+          // jemalloc TSD contains pointers to other structures, among them to the arena and tcache
+          // check if is one of of them belong to the arena
+          const ndwords = dataInfo.region.size / utils.dwordSize;
+          let addr = dataInfo.region.addr;
+          for (var j = 0; j < ndwords; j++) {
+            const dword = addr.readPointer();
+            addr = addr.add(utils.dwordSize);
+
+            if (this.arenasAddr.some(x => x.equals(dword))) {
+              tcacheArena = dword;
+              tsdDwords = utils.readPointers(dataInfo.region.addr, ndwords);
+              break;
+            }
+          }
+
+          if (tsdDwords) {
+            break;
+          }
+        }
+      }
+
+      if (tsdDwords === undefined) {
+        // This thread does not have tcache yet since it was not found arena address
+        this.tcaches[tid.toString()] = null;
+        continue;
+      }
+
+      // We found correctly the TSD, go through each dword to find the tcache
+      let tcacheAddr;
+      for (var i = 0; i < tsdDwords.length; i++) {
+        let dword = tsdDwords[i];
+        if (tcacheAddr) {
+          break;
+        }
+
+        if (this.getInfo(dword)?.region?.size === tcacheSize) {
+          tcacheAddr = dword;
+        }
+      }
+
+      if (tcacheAddr === undefined) {
+        this.tcaches[tid.toString()] = null;
+        continue;
+      }
+
+      this.tcaches[tid.toString()] = this.parseTcache(tcacheAddr, tcacheSize, tid);
+
+      // Add the tid to the correspondingly arena
+      for (var i = 0; i < this.arenas.length; i++) {
+        if (tcacheArena.equals(this.arenas[i].addr)) {
+          this.arenas[i].tids.push(tid);
+          break;
+        }
+      }
+    }
+  }
+
+  getInfo(addr: NativePointer): JemallocInfo {
+    // Find the chunk that this addr belong
+    var chunk = null;
+    var run = null;
+    var region = null;
+
+    this.incCounter();
+
+    for (let i = 0; i < this.chunks.length; i++) {
+      const aux = this.chunks[i];
+      if (addr.compare(aux.addr) >= 0 &&
+          addr.compare(aux.addr.add(this.chunkSize)) < 0) {
+        chunk = aux;
+        break;
+      }
+    }
+
+    if (chunk) {
+      for (let i = 0; i < chunk.runs.length; i++) {
+        const aux = chunk.runs[i];
+        if (addr.compare(aux.addr) >= 0 &&
+          addr.compare(aux.addr.add(aux.size)) < 0) {
+          run = aux;
+          break;
+        }
+      }
+    }
+
+    if (run) {
+      for (let i = 0; i < run.regions.length; i++) {
+        const aux = run.regions[i];
+        if (addr.compare(aux.addr) >= 0 &&
+          addr.compare(aux.addr.add(aux.size)) < 0) {
+          region = aux;
+          break;
+        }
+      }
+    }
+
+    return new JemallocInfo(region, run, chunk, addr);
+  }
+
+  sizeToBinSize(size: number) {
+    const maxSmallSize = this.binInfo[this.nBins - 1].regSize;
+
+    if (size > maxSmallSize) {
+      return 0;
+    }
+
+    for (var i = 1; i < this.nBins; i++) {
+      if (size >= this.binInfo[i - 1].regSize &&
+        size < this.binInfo[i].regSize) {
+        return this.binInfo[i].regSize;
+      }
+    }
+
+    return 0;
+  }
+
+  setThreshold(refreshThreshold: number) {
+    this.threshold = refreshThreshold;
+  }
+
+  private parseTcache(tcacheAddr: NativePointer, tcacheSize: number, tid: number) : Tcache {
+    let tbinAddr = this.config.offsetStructMember(tcacheAddr, "tcache_t", "tbins");
+    const tbinSize = this.config.sizeOf("tcache_bin_t");
+
+    let tbins = [];
+    for (var i = 0; i < this.nBins; i++) {
+      const nbinSize = this.tbinInfo[i].ncachedMax * utils.dwordSize;
+      const avail = this.config.offsetStructMember(tbinAddr, "tcache_bin_t", "avail").readPointer();
+      const ncached = this.config.offsetStructMember(tbinAddr, "tcache_bin_t", "ncached").readU32();
+      const lgFillDiv = this.config.offsetStructMember(tbinAddr, "tcache_bin_t", "lg_fill_div").readU32();
+      const lowWater = this.config.offsetStructMember(tbinAddr, "tcache_bin_t", "low_water").readU32();
+
+      const stack = utils.readPointers(avail.sub(nbinSize), this.tbinInfo[i].ncachedMax);
+      tbins.push(new TcacheBin(tbinAddr, i, lowWater, lgFillDiv, ncached, avail, stack));
+
+      tbinAddr = tbinAddr.add(tbinSize);
+    }
+
+    return new Tcache(tcacheAddr, tid, tbins);
   }
 
   private parseRun(hdrAddr: NativePointer, addr: NativePointer, size: number, binId: number) : Run {
@@ -388,27 +530,6 @@ export class Jemalloc {
     }
 
     return new Run(hdrAddr, addr, runSize, binId, freeRegions, regsMask, regions);
-  }
-
-  setThreshold(refreshThreshold: number) {
-    this.threshold = refreshThreshold;
-  }
-
-  private sizeToBinSize(size: number) {
-    const maxSmallSize = this.binInfo[this.nBins - 1].regSize;
-
-    if (size > maxSmallSize) {
-      return 0;
-    }
-
-    for (var i = 1; i < this.nBins; i++) {
-      if (size >= this.binInfo[i - 1].regSize&&
-        size < this.binInfo[i].regSize) {
-          return this.binInfo[i].regSize;
-      }
-    }
-
-    return 0;
   }
 
   private incCounter() {
@@ -464,8 +585,25 @@ class ArenaBin {
 
 class Arena {
   constructor(public addr: NativePointer,
+    public binAddr: NativePointer,
     public index: number,
     public bins: ArenaBin[],
     public chunks: Chunk[],
     public tids: number[]) {}
+}
+
+class TcacheBin {
+  constructor(public addr: NativePointer,
+    public index: number,
+    public lowWater: number,
+    public lgFillDiv: number,
+    public nCached: number,
+    public avail: NativePointer,
+    public stack: NativePointer[]) {}
+}
+
+class Tcache {
+  constructor(public addr: NativePointer,
+    public tid: number,
+    public tbins: TcacheBin []) {}
 }

@@ -21,7 +21,9 @@ jemalloc.setThreshold(200);
 
 const base = Module.findBaseAddress("...");
 
-jemalloc.parseAll();
+// parse only handle chunks and run
+// parseAll will include arenas and tcaches
+jemalloc.parse();
 
 console.log("[*] Base of module " + base);
 
@@ -32,7 +34,7 @@ Interceptor.attach(base.add(...), {
 
     if (info.region === null) {
       // Force the parsing because it should have been found
-      jemalloc.parseAll();
+      jemalloc.parse();
       info = jemalloc.getInfo(ctx.x0);
     }
 
@@ -69,5 +71,5 @@ Interceptor.attach(base.add(...), {
 TODO
 ====
 
-There are things still missing which will be added in the future. By now it only will work on Android8 64 bits as is the main device of testing I have, but more configurations can be added and hence tested. Moreover, I am open to PR, comments or other improvements over the code.
+The only configuration available is Android8 64 bits as is the main device of testing I have, but more configurations can be added. I am open to PR, comments or other improvements over the code.
 

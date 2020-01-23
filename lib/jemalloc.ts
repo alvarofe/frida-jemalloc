@@ -12,6 +12,72 @@ interface ITcaches {
   [tid: string] : Tcache;
 }
 
+export class BinInfo {
+  constructor(public regSize: number,
+    public runSize: number,
+    public regOff: number,
+    public nRegs: number) {}
+}
+
+export class TBinInfo {
+  constructor(public ncachedMax: number) {}
+}
+
+export class Chunk {
+  constructor(public addr: NativePointer,
+    public arenaAddr: NativePointer,
+    public runs: Run[],
+    public size: number) {}
+}
+
+export class Region {
+  constructor(public index: number,
+    public addr: NativePointer,
+    public size: number,
+    public isFree: boolean) {}
+}
+
+export class Run {
+  constructor(public hdrAddr: NativePointer,
+    public addr: NativePointer,
+    public size: number,
+    public binId: number,
+    public nFree: number,
+    public bitMap: number[],
+    public regions: Region[]) {}
+}
+
+export class ArenaBin {
+  constructor(public addr: NativePointer,
+    public index: number,
+    public runCur?: Run) {}
+}
+
+export class Arena {
+  constructor(public addr: NativePointer,
+    public binAddr: NativePointer,
+    public index: number,
+    public bins: ArenaBin[],
+    public chunks: Chunk[],
+    public tids: number[]) {}
+}
+
+export class TcacheBin {
+  constructor(public addr: NativePointer,
+    public index: number,
+    public lowWater: number,
+    public lgFillDiv: number,
+    public nCached: number,
+    public avail: NativePointer,
+    public stack: NativePointer[]) {}
+}
+
+export class Tcache {
+  constructor(public addr: NativePointer,
+    public tid: number,
+    public tbins: TcacheBin []) {}
+}
+
 export class JemallocInfo {
   constructor(public region: Region,
               public run: Run,
@@ -540,70 +606,4 @@ export class Jemalloc {
     }
   }
 
-}
-
-class BinInfo {
-  constructor(public regSize: number,
-    public runSize: number,
-    public regOff: number,
-    public nRegs: number) {}
-}
-
-class TBinInfo {
-  constructor(public ncachedMax: number) {}
-}
-
-class Chunk {
-  constructor(public addr: NativePointer,
-    public arenaAddr: NativePointer,
-    public runs: Run[],
-    public size: number) {}
-}
-
-class Region {
-  constructor(public index: number,
-    public addr: NativePointer,
-    public size: number,
-    public isFree: boolean) {}
-}
-
-class Run {
-  constructor(public hdrAddr: NativePointer,
-    public addr: NativePointer,
-    public size: number,
-    public binId: number,
-    public nFree: number,
-    public bitMap: number[],
-    public regions: Region[]) {}
-}
-
-class ArenaBin {
-  constructor(public addr: NativePointer,
-    public index: number,
-    public runCur?: Run) {}
-}
-
-class Arena {
-  constructor(public addr: NativePointer,
-    public binAddr: NativePointer,
-    public index: number,
-    public bins: ArenaBin[],
-    public chunks: Chunk[],
-    public tids: number[]) {}
-}
-
-class TcacheBin {
-  constructor(public addr: NativePointer,
-    public index: number,
-    public lowWater: number,
-    public lgFillDiv: number,
-    public nCached: number,
-    public avail: NativePointer,
-    public stack: NativePointer[]) {}
-}
-
-class Tcache {
-  constructor(public addr: NativePointer,
-    public tid: number,
-    public tbins: TcacheBin []) {}
 }
